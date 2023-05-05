@@ -1,0 +1,198 @@
+query OracleHostHierarchyHostListQuery($first: Int!, $after: String, $filter: [Filter!], $sortBy: HierarchySortByField, $sortOrder: SortOrder, $isMultitenancyEnabled: Boolean = false, $descendantConnectionFilter: [Filter!]) {
+  oracleTopLevelDescendants(after: $after, first: $first, filter: $filter, sortBy: $sortBy, sortOrder: $sortOrder, typeFilter: [OracleHost, OracleRac]) {
+    edges {
+      cursor
+      node {
+        id
+        objectType
+        ...HierarchyObjectNameColumnFragment
+        ...EffectiveSlaColumnFragment
+        ...CdmClusterColumnFragment
+        ...OrganizationsColumnFragment @include(if: $isMultitenancyEnabled)
+        ...CdmClusterLabelFragment
+        ... on OracleHost {
+          numChannels
+          databaseDescendantConnection: descendantConnection(filter: $descendantConnectionFilter, typeFilter: [OracleDatabase]) {
+            count
+            __typename
+          }
+          connectionStatus {
+            connectivity
+            __typename
+          }
+          host {
+            id
+            name
+            ipAddresses
+            osType
+            isOracleHost
+            oracleUserDetails {
+              sysDbaUser
+              queryUser
+              __typename
+            }
+            __typename
+          }
+          __typename
+        }
+        ... on OracleRac {
+          numChannels
+          distributeBackupsAutomatically
+          nodes {
+            status
+            nodeName
+            hostFid
+            __typename
+          }
+          nodeOrder {
+            nodeName
+            order
+            __typename
+          }
+          databaseDescendantConnection: descendantConnection(typeFilter: [OracleDatabase], filter: $descendantConnectionFilter) {
+            count
+            __typename
+          }
+          connectionStatus {
+            connectivity
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+    pageInfo {
+      startCursor
+      endCursor
+      hasNextPage
+      hasPreviousPage
+      __typename
+    }
+    __typename
+  }
+}
+
+fragment OrganizationsColumnFragment on HierarchyObject {
+  allOrgs {
+    name
+    __typename
+  }
+  __typename
+}
+
+fragment HierarchyObjectNameColumnFragment on HierarchyObject {
+  name
+  __typename
+}
+
+fragment CdmClusterColumnFragment on CdmHierarchyObject {
+  replicatedObjectCount
+  cluster {
+    id
+    name
+    version
+    status
+    __typename
+  }
+  __typename
+}
+
+fragment CdmClusterLabelFragment on CdmHierarchyObject {
+  cluster {
+    id
+    name
+    version
+    __typename
+  }
+  primaryClusterLocation {
+    id
+    __typename
+  }
+  __typename
+}
+
+fragment EffectiveSlaColumnFragment on HierarchyObject {
+  id
+  effectiveSlaDomain {
+    ...EffectiveSlaDomainFragment
+    ... on GlobalSlaReply {
+      description
+      __typename
+    }
+    __typename
+  }
+  ... on CdmHierarchyObject {
+    pendingSla {
+      ...SLADomainFragment
+      __typename
+    }
+    __typename
+  }
+  __typename
+}
+
+fragment EffectiveSlaDomainFragment on SlaDomain {
+  id
+  name
+  ... on GlobalSlaReply {
+    isRetentionLockedSla
+    __typename
+  }
+  ... on ClusterSlaDomain {
+    fid
+    cluster {
+      id
+      name
+      __typename
+    }
+    isRetentionLockedSla
+    __typename
+  }
+  __typename
+}
+
+fragment SLADomainFragment on SlaDomain {
+  id
+  name
+  ... on ClusterSlaDomain {
+    fid
+    cluster {
+      id
+      name
+      __typename
+    }
+    __typename
+  }
+  __typename
+}
+
+{
+  "isMultitenancyEnabled": false,
+  "first": 50,
+  "filter": [
+    {
+      "field": "IS_RELIC",
+      "texts": [
+        "false"
+      ]
+    },
+    {
+      "field": "IS_REPLICATED",
+      "texts": [
+        "false"
+      ]
+    }
+  ],
+  "sortBy": "NAME",
+  "sortOrder": "ASC",
+  "descendantConnectionFilter": [
+    {
+      "field": "IS_RELIC",
+      "texts": [
+        "false"
+      ]
+    }
+  ]
+}
