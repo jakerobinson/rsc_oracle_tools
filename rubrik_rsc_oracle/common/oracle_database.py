@@ -368,149 +368,56 @@ class OracleDatabase:
         else:
             query = gql(
                 """
-                query getOracleDatabase($fid: UUID!) {
-                oracleDatabase(fid: $fid) {
-                    cdmId
-                    isRelic
-                    isLiveMount
-                    dbUniqueName
-                    numTablespaces
-                    tablespaces
-                    numLogSnapshots
-                    pdbs {
-                        id
-                    }
-                    dbRole
-                    dataGuardType
-                    logBackupFrequency
-                    lastValidationResult {
-                        snapshotId
-                        timestampMs
-                    }
-                    instances {
-                        hostId
-                        instanceName
-                    }
-                    numInstances
-                    numChannels
-                    numInstances
-                    numChannels
-                    directoryPaths {
-                        archiveDests
-                    }
-                    archiveLogMode
-                    isLiveMount
-                    sectionSizeInGigabytes
-                    logRetentionHours
-                    hostLogRetentionHours
-                    dataGuardGroup {
-                        dataGuardGroupId
-                        dbUniqueName
-                        dbRole
-                    }
-                    liveMounts {
-                        nodes {
-                            isFilesOnlyMount
-                        }
-                    }
-                    id
+                query OracleDatabaseDetails($fid: UUID!) {
+                    oracleDatabase(fid: $fid) {
                     name
-                    objectType
-                    slaAssignment
-                    effectiveSlaDomain {
-                    id
-                    __typename
-                    objectSpecificConfigs {
-                      oracleConfig {
-                        frequency {
-                          duration
-                          unit
-                        }        
+                    dbUniqueName
+                    physicalPath {
+                      name
+                    }
+                    dataGuardGroup {
+                      logicalChildConnection {
+                        nodes {
+                          name
+                        }
                       }
                     }
-                    version
-                    }
-                    slaPauseStatus
-                    snapshotDistribution {
-                        onDemandCount
-                    }
-                    effectiveRetentionSlaDomain {
-                        id
-                        name
-                    }
-                    configuredSlaDomain {
-                        id
-                        name
-                    }
-                    effectiveSlaSourceObject {
-                        fid
-                        name
-                    }
-                    logicalPath {
-                        fid
-                        name
-                    }
-                    physicalPath {
-                        fid
-                        name
-                    }
-                    numWorkloadDescendants
-                    allOrgs {
-                        id
-                        name
-                        fullName
-                    }
-                    cluster {
-                        id
-                        name
-                    }
-                    primaryClusterLocation {
-                        id
-                        name
-                        isActive
-                    }
-                    pendingSla {
-                        id
-                        name
-                    }
-                    pendingObjectDeletionStatus {
-                        objectFid
-                        status
-                    }
-                        replicatedObjects {
-                        objectType 
-                    }
-                    latestUserNote {
-                        objectId
-                        userName
-                        userNote
-                    }
-                    replicatedObjectCount
-                    cdmLink
+                    dbRole
                     missedSnapshotConnection {
-                        nodes {
-                            date
-                        }
+                      nodes {
+                        date
+                      }
                     }
+                    logBackupFrequency
                     newestSnapshot {
-                        id
-                        date
+                      date
                     }
-                    oldestSnapshot {
-                        id
-                        date
+                    effectiveSlaDomain {
+                      ... on ClusterSlaDomain {
+                        name
+                        objectSpecificConfigs {
+                          oracleConfig {
+                            frequency {
+                              duration
+                              unit
+                            }
+                          }
+                        }
+                      }
+                      ... on GlobalSlaReply {
+                        name
+                        objectSpecificConfigs {
+                          oracleConfig {
+                            frequency {
+                              duration
+                              unit
+                            }
+                          }
+                        }
+                      }
                     }
-                    onDemandSnapshotCount
-                    newestArchivedSnapshot {
-                        id
-                        date
-                    }
-                    newestReplicatedSnapshot {
-                        id
-                        date
-                    }
-                }              
-                }         
+                  }
+                }
                 """
             )
             query_variables = {
@@ -519,243 +426,56 @@ class OracleDatabase:
             database_details = self.connection.graphql_query(query, query_variables)['oracleDatabase']
             self.logger.warning(database_details)
 
-            query = gql(
-                """
-                query OracleDatabaseSnapshotCalendarQuery($snappableFid: UUID!, $snapshotGroupBy: CdmSnapshotGroupByEnum!, $filter: CdmSnapshotFilterInput, $timezoneOffset: Float!) {
-                  snappable: oracleDatabase(fid: $snappableFid) {
-                    id
-                    snapshotGroupByConnection(groupBy: $snapshotGroupBy, filter: $filter, timezoneOffset: $timezoneOffset) {
-                      nodes {
-                        groupByInfo {
-                          ... on TimeRangeWithUnit {
-                            unit
-                            start
-                            end
-                            __typename
-                          }
-                          __typename
-                        }
-                        snapshotConnection {
-                          count
-                          nodes {
-                            id
-                            __typename
-                          }
-                          __typename
-                        }
-                        __typename
-                      }
-                      __typename
-                    }
-                    __typename
-                  }
-                }
-                """
-            )
 
-            query_variables = {
-                "snappableFid": self.id,
-                "snapshotGroupBy": "Day",
-                "timezoneOffset": -6
-            }
-            snapshots = self.connection.graphql_query(query, query_variables)['snappable']
-            self.logger.warning(snapshots)
 
     @staticmethod
     def get_oracle_databases(connection):
         query = gql(
             """
-            query OracleDatabasesListQuery($filter: [Filter!], $isMultitenancyEnabled: Boolean = false) {
-              oracleDatabases(filter: $filter) {  
+            query OracleDatabases($filter: [Filter!]) {
+              oracleDatabases(filter: $filter) {
                 nodes {
-                    id
-                    dbUniqueName
+                  name
+                  dbUniqueName
+                  isLiveMount
+                  numInstances
+                  physicalPath {
+                    name
                     objectType
-                    dataGuardGroup {
-                      id
-                      dbUniqueName
-                      __typename
-                    }
-                    dataGuardType
-                    isRelic
-                    isLiveMount
-                    dbRole
-                    logBackupFrequency
-                    numInstances
-                    objectType
-                    numChannels
-                    sectionSizeInGigabytes
-                    effectiveSlaDomain {
-                      objectSpecificConfigs {
-                        oracleConfig {
-                          frequency {
-                            duration
-                            unit
-                            __typename
-                          }
-                          __typename
-                        }
-                        __typename
-                      }
-                      ...EffectiveSlaDomainFragment
-                      ... on GlobalSlaReply {
-                        description
-                        __typename
-                      }
-                      __typename
-                    }
-                    ...HierarchyObjectNameColumnFragment
-                    ...HierarchyObjectLocationColumnFragment
-                    ...EffectiveSlaColumnFragment
-                    ...SlaAssignmentColumnFragment
-                    ...CdmClusterColumnFragment
-                    ...OrganizationsColumnFragment @include(if: $isMultitenancyEnabled)
-                    ...CdmClusterLabelFragment
-                    ...DatabaseTablespacesColumnFragment
-                    __typename
                   }
-                  __typename
+                  cluster {
+                    name
+                    }
+                  dbRole
+                  dataGuardType
+                  dataGuardGroup {
+                    name
+                    dbUniqueName
+                  }
+                  slaAssignment              
+                  effectiveSlaDomain {
+                    ... on GlobalSlaReply {
+                      name
+                    }
+                    ... on ClusterSlaDomain {
+                      name
+                    }
+                  }                  
                 }
-                __typename
-            }
-
-            fragment OrganizationsColumnFragment on HierarchyObject {
-              allOrgs {
-                name
-                __typename
               }
-              __typename
             }
-
-            fragment HierarchyObjectNameColumnFragment on HierarchyObject {
-              name
-              __typename
-            }
-
-            fragment HierarchyObjectLocationColumnFragment on HierarchyObject {
-              logicalPath {
-                name
-                objectType
-                __typename
-              }
-              physicalPath {
-                name
-                objectType
-                __typename
-              }
-              __typename
-            }
-
-            fragment EffectiveSlaColumnFragment on HierarchyObject {
-              id
-              effectiveSlaDomain {
-                ...EffectiveSlaDomainFragment
-                ... on GlobalSlaReply {
-                  description
-                  __typename
-                }
-                __typename
-              }
-              ... on CdmHierarchyObject {
-                pendingSla {
-                  ...SLADomainFragment
-                  __typename
-                }
-                __typename
-              }
-              __typename
-            }
-
-            fragment EffectiveSlaDomainFragment on SlaDomain {
-              id
-              name
-              ... on GlobalSlaReply {
-                isRetentionLockedSla
-                __typename
-              }
-              ... on ClusterSlaDomain {
-                fid
-                cluster {
-                  id
-                  name
-                  __typename
-                }
-                isRetentionLockedSla
-                __typename
-              }
-              __typename
-            }
-
-            fragment SLADomainFragment on SlaDomain {
-              id
-              name
-              ... on ClusterSlaDomain {
-                fid
-                cluster {
-                  id
-                  name
-                  __typename
-                }
-                __typename
-              }
-              __typename
-            }
-
-            fragment SlaAssignmentColumnFragment on HierarchyObject {
-              slaAssignment
-              __typename
-            }
-
-            fragment CdmClusterColumnFragment on CdmHierarchyObject {
-              replicatedObjectCount
-              cluster {
-                id
-                name
-                version
-                status
-                __typename
-              }
-              __typename
-            }
-
-            fragment CdmClusterLabelFragment on CdmHierarchyObject {
-              cluster {
-                id
-                name
-                version
-                __typename
-              }
-              primaryClusterLocation {
-                id
-                __typename
-              }
-              __typename
-            }
-
-            fragment DatabaseTablespacesColumnFragment on OracleDatabase {
-              numTablespaces
-              __typename
-            }
-
-
-
                     """
         )
 
         query_variables = {
-            "isMultitenancyEnabled": False,
             "filter": [
                 {
                     "field": "IS_RELIC",
-                    "texts": [
-                        "false"
-                    ]
+                    "texts": ["false"]
                 },
                 {
                     "field": "IS_REPLICATED",
-                    "texts": [
-                        "false"
-                    ]
+                    "texts": ["false"]
                 }
             ],
         }
@@ -764,7 +484,7 @@ class OracleDatabase:
 
         for db in all_databases['oracleDatabases']['nodes']:
             dataguard_group, rac, host_cluster = None, None, None
-            for path in db['logicalPath']:
+            for path in db['physicalPath']:
                 if path['objectType'] == 'ORACLE_DATA_GUARD_GROUP':
                     dataguard_group = path['name']
                 if path['objectType'] == 'OracleRac':

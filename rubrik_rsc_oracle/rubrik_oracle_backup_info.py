@@ -37,20 +37,22 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
     else:
         databases = OracleDatabase.get_oracle_databases(rubrik)['oracleDatabases']['nodes']
         db_data = []
-        db_headers = ["Database", "Host/Cluster", "Instances", "DG_Group", "CDM Cluster", "SLA", "Assignment"]
+        db_headers = ["Database", "DB Unique Name", "Role", "DG_Group", "Host/Cluster", "Instances", "CDM Cluster", "SLA", "Assignment"]
         for db in databases:
             if not db['isLiveMount']:
-                db_element = [''] * 7
-                db_element[0] = db['dbUniqueName'].lower()
-                for path in db['logicalPath']:
+                db_element = [''] * 9
+                db_element[0] = db['name'].lower()
+                for path in db['physicalPath']:
                     if path['objectType'] == 'OracleRac' or path['objectType'] == 'OracleHost':
-                        db_element[1] = path['name']
-                db_element[2] = db['numInstances']
+                        db_element[4] = path['name']
+                db_element[5] = db['numInstances']
                 if db['dataGuardType'] == 'DATA_GUARD_MEMBER':
-                    db_element[3] = db['dataGuardGroup']['dbUniqueName']
-                db_element[4] = db['cluster']['name']
-                db_element[5] = db['effectiveSlaDomain']['name']
-                db_element[6] = db['slaAssignment']
+                    db_element[1] = db['dbUniqueName']
+                    db_element[2] = db['dbRole']
+                    db_element[3] = db['dataGuardGroup']['name']
+                db_element[6] = db['cluster']['name']
+                db_element[7] = db['effectiveSlaDomain']['name']
+                db_element[8] = db['slaAssignment']
                 db_data.append(db_element)
         db_data.sort(key=lambda x: (x[0], x[1]))
         print("-" * 130)
