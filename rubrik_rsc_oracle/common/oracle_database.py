@@ -32,6 +32,7 @@ class OracleDatabase:
     """
     Rubrik RBS (snappable) Oracle backup object.
     """
+
     def __init__(self, connection, database_name, database_host=None, timeout=180):
         self.logger = logging.getLogger(__name__ + '.RubrikRbsOracleDatabase')
         self.cdm_timeout = timeout
@@ -44,189 +45,43 @@ class OracleDatabase:
 
     def get_oracle_db_id(self):
         """
-            Get the Oracle object id from the Rubrik CDM using database name and the hostname.
+            Get the Oracle object id using database name and the hostname.
 
             Args:
                 self (object): Database Object
             Returns:
                 oracle_db_id (str): The Rubrik database object id.
             """
-        # This will use the rubrik_cdm module to get the id. There is a bug that is getting fixed so until
-        # that fix is in place get the id using a basic Get.
-        #     oracle_db_id = self.rubrik.connection.object_id(oracle_db_name, 'oracle_db', hostname=oracle_host_name)
-        #     return oracle_db_id
-
         query = gql(
             """
-            query OracleDatabasesListQuery($filter: [Filter!], $isMultitenancyEnabled: Boolean = false) {
-                oracleDatabases(filter: $filter) {  
-                    nodes {
-                        id
-                        dbUniqueName
-                        objectType
-                        dataGuardGroup {
-                          id
-                          dbUniqueName
-                          __typename
-                        }
-                        dataGuardType
-                        numInstances
-                        effectiveSlaDomain {
-                          objectSpecificConfigs {
-                            oracleConfig {
-                              frequency {
-                                duration
-                                unit
-                                __typename
-                              }
-                              __typename
-                            }
-                            __typename
-                          }
-                          ...EffectiveSlaDomainFragment
-                          ... on GlobalSlaReply {
-                            description
-                            __typename
-                          }
-                          __typename
-                        }
-                        ...HierarchyObjectNameColumnFragment
-                        ...HierarchyObjectLocationColumnFragment
-                        ...EffectiveSlaColumnFragment
-                        ...SlaAssignmentColumnFragment
-                        ...CdmClusterColumnFragment
-                        ...OrganizationsColumnFragment @include(if: $isMultitenancyEnabled)
-                        ...CdmClusterLabelFragment
-                        ...DatabaseTablespacesColumnFragment
-                        __typename
-                      }
-                      __typename
-                    }
-                    __typename
-                }
-
-                fragment OrganizationsColumnFragment on HierarchyObject {
-                  allOrgs {
-                    name
-                    __typename
+            query OracleDatabase($filter: [Filter!]) {
+            oracleDatabases(filter: $filter) {
+                nodes {
+                  dataGuardType
+                  dataGuardGroup {
+                    dataGuardType
+                    dbRole
+                    dbUniqueName
+                    id
                   }
-                  __typename
-                }
-    
-                fragment HierarchyObjectNameColumnFragment on HierarchyObject {
-                  name
-                  __typename
-                }
-    
-                fragment HierarchyObjectLocationColumnFragment on HierarchyObject {
-                  logicalPath {
-                    name
-                    objectType
-                    __typename
-                  }
+                  dbRole
+                  dbUniqueName
+                  id
+                  isLiveMount
+                  isRelic
                   physicalPath {
+                    fid
                     name
                     objectType
-                    __typename
                   }
-                  __typename
-                }
-    
-                fragment EffectiveSlaColumnFragment on HierarchyObject {
-                  id
-                  effectiveSlaDomain {
-                    ...EffectiveSlaDomainFragment
-                    ... on GlobalSlaReply {
-                      description
-                      __typename
-                    }
-                    __typename
-                  }
-                  ... on CdmHierarchyObject {
-                    pendingSla {
-                      ...SLADomainFragment
-                      __typename
-                    }
-                    __typename
-                  }
-                  __typename
-                }
-    
-                fragment EffectiveSlaDomainFragment on SlaDomain {
-                  id
                   name
-                  ... on GlobalSlaReply {
-                    isRetentionLockedSla
-                    __typename
-                  }
-                  ... on ClusterSlaDomain {
-                    fid
-                    cluster {
-                      id
-                      name
-                      __typename
-                    }
-                    isRetentionLockedSla
-                    __typename
-                  }
-                  __typename
                 }
-    
-                fragment SLADomainFragment on SlaDomain {
-                  id
-                  name
-                  ... on ClusterSlaDomain {
-                    fid
-                    cluster {
-                      id
-                      name
-                      __typename
-                    }
-                    __typename
-                  }
-                  __typename
-                }
-    
-                fragment SlaAssignmentColumnFragment on HierarchyObject {
-                  slaAssignment
-                  __typename
-                }
-    
-                fragment CdmClusterColumnFragment on CdmHierarchyObject {
-                  replicatedObjectCount
-                  cluster {
-                    id
-                    name
-                    version
-                    status
-                    __typename
-                  }
-                  __typename
-                }
-    
-                fragment CdmClusterLabelFragment on CdmHierarchyObject {
-                  cluster {
-                    id
-                    name
-                    version
-                    __typename
-                  }
-                  primaryClusterLocation {
-                    id
-                    __typename
-                  }
-                  __typename
-                }
-    
-                fragment DatabaseTablespacesColumnFragment on OracleDatabase {
-                  numTablespaces
-                  __typename
-                }
+              }
+            }
                     """
         )
 
         query_variables = {
-            "isMultitenancyEnabled": False,
             "filter": [
                 {
                     "field": "IS_RELIC",
@@ -241,18 +96,98 @@ class OracleDatabase:
                     ]
                 },
                 {
-                  "field": "NAME",
-                  "texts": [
-                    self.database_name
-                  ]
+                    "field": "NAME",
+                    "texts": [
+                        self.database_name
+                    ]
                 }
             ],
         }
 
         name_match_databases = self.connection.graphql_query(query, query_variables)
-        self.logger.debug("Oracle DBs with name: {} returned: {}".format(self.database_name, name_match_databases))
+        self.logger.debug("Oracle DBs with name (name_match_databases): {} returned: {}".format(self.database_name, name_match_databases))
         if len(name_match_databases['oracleDatabases']['nodes']) == 0:
-            raise OracleDatabaseError("No database found for database with name: {}.".format(self.database_name))
+            query = gql(
+                """
+                query OracleDGGroups($filter: [Filter!], $typeFilter: [HierarchyObjectTypeEnum!]) {
+                  oracleTopLevelDescendants(filter: $filter, typeFilter: $typeFilter) {
+                    nodes {
+                      ... on OracleDataGuardGroup {
+                        objectType
+                        name
+                        id
+                        isRelic
+                        dbUniqueName
+                        dbRole
+                        dataGuardType
+                        dataGuardGroupId
+                        descendantConnection {
+                          nodes {
+                            cluster {
+                              name
+                              id
+                            }
+                            id
+                            name
+                            physicalPath {
+                              fid
+                              name
+                            }
+                            ... on OracleDatabase {
+                              dbUniqueName
+                              isRelic
+                              dbRole
+                              isLiveMount
+                              dataGuardGroup {
+                                id
+                                name
+                                physicalPath {
+                                  fid
+                                  name
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """
+            )
+            query_variables = {
+                "filter": [
+                    {
+                        "field": "IS_RELIC",
+                        "texts": [ "false"]
+                    },
+                    {
+                        "field": "IS_REPLICATED",
+                        "texts": ["false"]
+                    }
+                ],
+                "typeFilter": "ORACLE_DATA_GUARD_GROUP",
+            }
+            dg_groups = self.connection.graphql_query(query, query_variables)
+            self.logger.debug("All dg groups returned: {}".format(dg_groups))
+            dg_ids = []
+            for dg_group in dg_groups['oracleTopLevelDescendants']['nodes']:
+                for connection in dg_group['descendantConnection']['nodes']:
+                    if connection['dbUniqueName'] == self.database_name:
+                        self.logger.debug("Found DB with dbUniqueName")
+                        self.dataguard = True
+                        dg_ids.append(dg_group['id'])
+            if not dg_ids:
+                self.connection.delete_session()
+                raise OracleDatabaseError("No database found for database with name or db unique name: {}.".format(self.database_name))
+            elif dg_ids.count(dg_ids[0]) == len(dg_ids):
+                self.id = dg_ids[0]
+            else:
+                self.connection.delete_session()
+                raise OracleDatabaseError("Multiple DG Groups found for database with name or db unique name: {}.".format(self.database_name))
+            if not self.id:
+                self.connection.delete_session()
+                raise OracleDatabaseError("No database found for database with name or db unique name: {}.".format(self.database_name))
         elif len(name_match_databases['oracleDatabases']['nodes']) == 1:
             if name_match_databases['oracleDatabases']['nodes'][0]['dataGuardType'] == 'DATA_GUARD_MEMBER':
                 self.id = name_match_databases['oracleDatabases']['nodes'][0]['dataGuardGroup']['id']
@@ -260,13 +195,11 @@ class OracleDatabase:
             else:
                 self.id = name_match_databases['oracleDatabases']['nodes'][0]['id']
         else:
-            # if name_match_databases['oracleDatabases']['nodes'][0]['dataGuardType'] == 'DATA_GUARD_MEMBER' and name_match_databases['oracleDatabases']['nodes'][0]['dbUniqueName'] == self.database_name:
-            #     self.id = name_match_databases['oracleDatabases']['nodes'][0]['dataGuardGroup']['id']
+            self.logger.debug("Multiple databases found with name: {}".format(self.database_name))
             if self.database_host:
+                self.logger.debug("Checking for hostname match in physicalPath: {}".format(name_match_databases['oracleDatabases']['nodes']))
                 for node in name_match_databases['oracleDatabases']['nodes']:
-                    self.logger.debug("node: {}".format(node))
-                    for path in node['logicalPath']:
-                        self.logger.debug("Logical Path object_type: {} name: {}".format(path['objectType'],path['name']))
+                    for path in node['physicalPath']:
                         if self.database_host in path['name']:
                             if node['dataGuardType'] == 'DATA_GUARD_MEMBER':
                                 self.id = node['dataGuardGroup']['id']
@@ -274,16 +207,32 @@ class OracleDatabase:
                             else:
                                 self.id = node['id']
             else:
+                self.logger.debug("Checking if the multiple databases found are part of the same DG Group")
                 hosts = []
+                dg_ids = []
                 for node in name_match_databases['oracleDatabases']['nodes']:
-                    if node['dataGuardType'] == 'DATA_GUARD_MEMBER' and node['dbUniqueName'] == self.database_name:
-                        self.id = node['dataGuardGroup']['id']
+                    if node['dataGuardType'] == 'DATA_GUARD_MEMBER':
                         self.dataguard = True
-                        break
+                        dg_ids.append(node['dataGuardGroup']['id'])
                     else:
-                        for path in node['logicalPath']:
+                        for path in node['physicalPath']:
                             hosts.append(path['name'])
-                raise OracleDatabaseError("Database {} found on multiple hosts/RAC clusters: {}. You must specify a host or rac cluster name to obtain a unique id.".format(self.database_name, hosts))
+                if not dg_ids:
+                    self.connection.delete_session()
+                    raise OracleDatabaseError(
+                        "No database found for database with name or db unique name: {}.".format(self.database_name))
+                elif dg_ids.count(dg_ids[0]) == len(dg_ids):
+                    self.id = dg_ids[0]
+                else:
+                    self.connection.delete_session()
+                    raise OracleDatabaseError(
+                        "Multiple DG Groups found for database with name or db unique name: {}.".format(
+                            self.database_name))
+            if not self.id:
+                self.connection.delete_session()
+                raise OracleDatabaseError(
+                    "Database {} found on multiple hosts/RAC clusters: {}. You must specify a host or rac cluster name to obtain a unique id.".format(
+                        self.database_name, hosts))
 
     def get_details(self):
         if self.dataguard:
@@ -360,7 +309,7 @@ class OracleDatabase:
                     __typename
                   }
                 }
-            
+
                 fragment HierarchyObjectLocationColumnFragment on HierarchyObject {
                     logicalPath {
                         name
@@ -374,7 +323,7 @@ class OracleDatabase:
                     }
                     __typename
                 }
-            
+
                 fragment SLADomainFragment on SlaDomain {
                     id
                     name
@@ -389,7 +338,7 @@ class OracleDatabase:
                     }
                     __typename
                 }
-            
+
                 fragment EffectiveSlaDomainFragment on SlaDomain {
                     id
                     name
@@ -423,6 +372,7 @@ class OracleDatabase:
                 oracleDatabase(fid: $fid) {
                     cdmId
                     isRelic
+                    isLiveMount
                     dbUniqueName
                     numTablespaces
                     tablespaces
@@ -566,8 +516,50 @@ class OracleDatabase:
             query_variables = {
                 "fid": self.id
             }
-            database_details = self.connection.graphql_query(query, query_variables)
+            database_details = self.connection.graphql_query(query, query_variables)['oracleDatabase']
             self.logger.warning(database_details)
+
+            query = gql(
+                """
+                query OracleDatabaseSnapshotCalendarQuery($snappableFid: UUID!, $snapshotGroupBy: CdmSnapshotGroupByEnum!, $filter: CdmSnapshotFilterInput, $timezoneOffset: Float!) {
+                  snappable: oracleDatabase(fid: $snappableFid) {
+                    id
+                    snapshotGroupByConnection(groupBy: $snapshotGroupBy, filter: $filter, timezoneOffset: $timezoneOffset) {
+                      nodes {
+                        groupByInfo {
+                          ... on TimeRangeWithUnit {
+                            unit
+                            start
+                            end
+                            __typename
+                          }
+                          __typename
+                        }
+                        snapshotConnection {
+                          count
+                          nodes {
+                            id
+                            __typename
+                          }
+                          __typename
+                        }
+                        __typename
+                      }
+                      __typename
+                    }
+                    __typename
+                  }
+                }
+                """
+            )
+
+            query_variables = {
+                "snappableFid": self.id,
+                "snapshotGroupBy": "Day",
+                "timezoneOffset": -6
+            }
+            snapshots = self.connection.graphql_query(query, query_variables)['snappable']
+            self.logger.warning(snapshots)
 
     @staticmethod
     def get_oracle_databases(connection):
@@ -586,6 +578,7 @@ class OracleDatabase:
                     }
                     dataGuardType
                     isRelic
+                    isLiveMount
                     dbRole
                     logBackupFrequency
                     numInstances

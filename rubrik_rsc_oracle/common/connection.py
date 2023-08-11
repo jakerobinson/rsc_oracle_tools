@@ -29,6 +29,7 @@ import sys
 import inspect
 
 import requests
+import urllib3
 from gql import Client
 from gql.transport.requests import RequestsHTTPTransport
 
@@ -70,7 +71,7 @@ class RubrikConnection:
     """
     def __init__(self, keyfile=None, insecure=False):
         self.logger = logging.getLogger(__name__ + '.RubrikConnection')
-        self.logger.debug("Loading json key file. This is the file downloaded when creating the service account in RSC. ")
+        self.logger.debug("Attempting to load json key file. This is the file downloaded when creating the service account in RSC. ")
         self.config = {
             'client_id': None,
             'client_secret': None,
@@ -79,26 +80,42 @@ class RubrikConnection:
         }
         if insecure:
             self.certificate_check = False
+            urllib3.disable_warnings()
         else:
             self.certificate_check = True
-        self.logger.debug("Keyfile: {}".format(keyfile))
+        self.logger.debug("Using insecure connection: {}".format(insecure))
+        self.logger.debug("Keyfile argument: {}".format(keyfile))
         if not keyfile:
-            self.__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-            self.logger.debug("The config file location is {}.".format(self.__location__))
-            keyfile = os.path.join(self.__location__, 'keyfile.json')
-        if os.path.exists(keyfile):
-            with open(keyfile) as config_file:
-                self.config = json.load(config_file)
-            for setting in self.config:
-                if not (self.config[setting] and self.config[setting].strip()):
-                    self.config[setting] = None
-        self.logger.debug("No keyfile available, trying environment variables")
+            __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+            self.logger.debug("Checking for keyfile at {}.".format(__location__))
+            __location__ = os.path.split(__location__)[0]
+            __location__ = os.path.split(__location__)[0]
+            __location__ = os.path.join(__location__, 'config')
+            self.logger.debug("The config file location is {}.".format(__location__))
+
+            keyfile = os.path.join(__location__, 'keyfile.json')
+            if os.path.exists(keyfile):
+                with open(keyfile) as config_file:
+                    self.config = json.load(config_file)
+                for setting in self.config:
+                    if not (self.config[setting] and self.config[setting].strip()):
+                        self.config[setting] = None
+            else:
+                self.logger.debug("No keyfile found at {}, trying environment variables".format(keyfile))
         if not self.config['client_id']:
             self.config['client_id'] = os.environ.get('rsc_client_id')
+            if not self.config['client_id']:
+                self.logger.debug("No rsc client id found in environment variables.")
         if not self.config['client_secret']:
             self.config['client_secret'] = os.environ.get('rsc_client_secret')
+            if not self.config['client_secret']:
+                self.logger.debug("No rsc client secret found in environment variables.")
         if not self.config['access_token_uri']:
             self.config['access_token_uri'] = os.environ.get('rsc_access_token_uri')
+            if not self.config['access_token_uri']:
+                self.logger.debug("No rsc token uri found in environment variables.")
+        if not self.config['client_id'] or not self.config['client_secret'] or not self.config['access_token_uri']:
+            raise RbsOracleConnectionError("No keyfile credentials found in keyfile or environmental variables")
         self.logger.debug("Instantiating RubrikConnection.")
         _payload = {
             "client_id": self.config['client_id'],
@@ -110,8 +127,11 @@ class RubrikConnection:
             'Accept': 'application/json, text/plain'
         }
         self.logger.debug("Access_token_uri: {}".format(self.config['access_token_uri']))
+        self.logger.debug("Headers: {}".format(_headers))
+        self.logger.debug("Payload: {}".format(_payload))
         response = requests.post(
             self.config['access_token_uri'],
+            verify=self.certificate_check,
             json=_payload,
             headers=_headers
         )
@@ -120,17 +140,13 @@ class RubrikConnection:
                 self.logger.warning(HTTP_ERRORS[response.status_code])
         response_json = response.json()
         if 'access_token' not in response_json:
-            print("Access token not found")
-            exit(1)
-        else:
-            # print("Access Token: {}".format(response_json['access_token']))
-            self.logger.debug("Service Account session created and Access Token has been obtained...")
+            raise RbsOracleConnectionError("Unable to obtain access token from RSC.")
+        self.logger.debug("Service Account session created and Access Token has been obtained...")
         self.access_token = response_json['access_token']
         self.headers = {'Content-Type': 'application/json;charset=UTF-8', 'Accept': 'application/json, text/plain',
                     'Authorization': 'Bearer ' + self.access_token}
 
     def delete_session(self):
-        # Delete the session to release the API Token
         end_session_url = self.config['access_token_uri'].replace("client_token", "session")
         self.logger.debug("End session uri: {}".format(end_session_url))
         end_session_response = requests.delete(
