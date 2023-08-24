@@ -22,6 +22,8 @@
 """
 Class for an Oracle database object.
 """
+import datetime
+import pytz
 import logging
 from gql import gql
 
@@ -367,56 +369,48 @@ class OracleDatabase:
             self.logger.warning(database_details)
         else:
             query = gql(
-                """
-                query OracleDatabaseDetails($fid: UUID!) {
-                    oracleDatabase(fid: $fid) {
+                """     
+                query OracleDatabase($fid: UUID!) {
+                oracleDatabase(fid: $fid) {
+                    id
                     name
-                    dbUniqueName
+                    dataGuardType
+                    isLiveMount
+                    isRelic
+                    numChannels
                     physicalPath {
-                      name
+                        name
+                        fid
+                        objectType
                     }
-                    dataGuardGroup {
-                      logicalChildConnection {
-                        nodes {
-                          name
-                        }
-                      }
-                    }
-                    dbRole
-                    missedSnapshotConnection {
-                      nodes {
-                        date
-                      }
-                    }
-                    logBackupFrequency
-                    newestSnapshot {
-                      date
-                    }
+                    numInstances
                     effectiveSlaDomain {
                       ... on ClusterSlaDomain {
                         name
-                        objectSpecificConfigs {
-                          oracleConfig {
-                            frequency {
-                              duration
-                              unit
-                            }
-                          }
-                        }
                       }
                       ... on GlobalSlaReply {
+                        id
                         name
-                        objectSpecificConfigs {
-                          oracleConfig {
-                            frequency {
-                              duration
-                              unit
-                            }
-                          }
-                        }
                       }
                     }
-                  }
+                    logBackupFrequency
+                    logRetentionHours
+                    cluster {
+                        id
+                        name
+                        timezone
+                    }
+                    snapshotConnection {
+                      nodes {
+                        id
+                        date
+                        cluster {
+                          name
+                        }
+                        cdmId
+                      }
+                    }
+                    }
                 }
                 """
             )
@@ -424,14 +418,90 @@ class OracleDatabase:
                 "fid": self.id
             }
             database_details = self.connection.graphql_query(query, query_variables)['oracleDatabase']
-            self.logger.warning(database_details)
+        return database_details
 
+    def get_log_backup_details(self):
+        query = gql(
+            """
+            query OracleDatabaseLogBackupConfig($input: OracleDbInput!) {
+              oracleDatabaseLogBackupConfig(input: $input) {
+                hostLogRetentionHours
+                logBackupFrequencyMin
+                logRetentionHours
+              }
+            }
+            """
+        )
+        query_variables = {
+            "input": {"id": self.id}
+        }
+        log_backup_details = self.connection.graphql_query(query, query_variables)
+        return log_backup_details['oracleDatabaseLogBackupConfig']
 
+    def get_recovery_ranges(self):
+        query = gql(
+            """
+            query OracleRecoverableRanges($input: GetOracleDbRecoverableRangesInput!) {
+              oracleRecoverableRanges(input: $input) {
+                data {
+                  beginTime
+                  endTime
+                  status
+                }
+                total
+              }
+            }
+            """
+        )
+        query_variables = {
+            "input": {"id": self.id}
+        }
+        recovery_ranges = self.connection.graphql_query(query, query_variables)
+        return recovery_ranges['oracleRecoverableRanges']['data']
+
+    def get_rac_details(self, rac_id):
+        query = gql(
+            """
+            query OracleRac($fid: UUID!) {
+              oracleRac(fid: $fid) {
+                id
+                name
+                nodes {
+                  hostFid
+                  nodeName
+                  status
+                }
+              }
+            }
+            """
+        )
+        query_variables = {
+             "fid": rac_id
+        }
+        rac_details = self.connection.graphql_query(query, query_variables)
+        return rac_details['oracleRac']
+
+    @staticmethod
+    def get_cluster_timezone(connection, cluster_id):
+        query = gql(
+            """
+            query Cluster($clusterUuid: UUID!) {
+              cluster(clusterUuid: $clusterUuid) {
+                timezone
+              }
+            }
+            """
+        )
+        query_variables = {
+            "clusterUuid": cluster_id
+        }
+        cluster_timezone = connection.connection.graphql_query(query, query_variables)
+        return cluster_timezone['cluster']['timezone']
 
     @staticmethod
     def get_oracle_databases(connection):
         query = gql(
-            """
+        """
             query OracleDatabases($filter: [Filter!]) {
               oracleDatabases(filter: $filter) {
                 nodes {
@@ -481,7 +551,6 @@ class OracleDatabase:
         }
 
         all_databases = connection.graphql_query(query, query_variables)
-
         for db in all_databases['oracleDatabases']['nodes']:
             dataguard_group, rac, host_cluster = None, None, None
             for path in db['physicalPath']:
@@ -494,6 +563,27 @@ class OracleDatabase:
                     host_cluster = path['name']
 
         return all_databases
+
+    @staticmethod
+    def cluster_time(time_string, timezone):
+        """
+        Converts a time string in a timezone to a user friendly string in that time zone.
+
+        Args:
+            time_string (str): Time string.
+            timezone (str): Time zone.
+        Returns:
+            time_string (str): Time string converted to the supplied time zone.
+        """
+        cluster_timezone = pytz.timezone(timezone)
+        utc = pytz.utc
+        if time_string.endswith('Z'):
+            time_string = time_string[:-1]
+            datetime_object = utc.localize(datetime.datetime.fromisoformat(time_string))
+        else:
+            datetime_object = cluster_timezone.localize(datetime.datetime.fromisoformat(time_string))
+        cluster_time_object = cluster_timezone.normalize(datetime_object.astimezone(cluster_timezone))
+        return cluster_time_object.isoformat()
 
 
 class OracleDatabaseError(rubrik_rsc_oracle.common.connection.NoTraceBackWithLineNumber):

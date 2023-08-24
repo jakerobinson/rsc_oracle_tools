@@ -33,7 +33,50 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
     if database_name:
         database = OracleDatabase(rubrik, database_name, host_name)
         logger.debug("Database ID: {}".format(database.id))
-        database.get_details()
+        database_details = database.get_details()
+        logger.warning(f"DB Details: {database_details}")
+        log_backup_details = database.get_log_backup_details()
+        logger.debug(f"DB log backup Details: {log_backup_details}")
+        recovery_ranges = database.get_recovery_ranges()
+        logger.debug(f"Backup recovery ranges: {recovery_ranges}")
+        timezone = database_details['cluster']['timezone']
+        # rubrik.delete_session()
+        # exit(20)
+
+        print("*" * 95)
+        print("*" * 95)
+        if database_details['dataGuardType'] == 'DataGuardGroup':
+            print("Data Guard Group Details ")
+            print("Data Guard Group Name: {0}   ID: {1}".format(database_details['name'], database_details['id']))
+        else:
+            print("Database Details ")
+            print("Database name: {0}   ID: {1}".format(database_details['name'], database_details['id']))
+        if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
+            print(f"RAC Cluster Name: {database_details['physicalPath'][0]['name']}    Number of instances: {database_details['numInstances']}")
+            print(database.get_rac_details(database_details['physicalPath'][0]['fid']))
+
+        else:
+            print(f"Host Name: {database_details['physicalPath'][0]['name']}")
+        # if 'dataGuardType' in database_details.keys():
+        #     if database_details['dataGuardType'] == 'DataGuardGroup':
+        #         for member in database_details['dataGuardGroupMembers']:
+        #             print("DB Unique Name: {0}    Host: {1}    Role: {2}".format(member['dbUniqueName'],
+        #                                                                          member['standaloneHostName'],
+        #                                                                          member['role']))
+        print(f"SLA: {database_details['effectiveSlaDomain']['name']}    Log Backup Frequency: {log_backup_details['logBackupFrequencyMin']} minutes    Log Retention: {int(log_backup_details['logRetentionHours'] / 24)} Days")
+        print(f"Backup Channels: {database_details['numChannels']}")
+        print(f"Cluster: {database_details['cluster']['name']}    Timezone: {timezone}")
+        print("*" * 95)
+        print("Available Database Backups (Snapshots):")
+        for snap in database_details['snapshotConnection']['nodes']:
+            print("Database Backup Date: {}   Snapshot ID: {}".format(
+                database.cluster_time(snap['date'], timezone)[:-6], snap['id']))
+        print("*" * 95)
+        print("Recoverable ranges:")
+        for recovery_range in recovery_ranges:
+            print("Begin Time: {}   End Time: {}".format(
+                database.cluster_time(recovery_range['beginTime'], timezone)[:-6],
+                database.cluster_time(recovery_range['endTime'], timezone)[:-6]))
     else:
         databases = OracleDatabase.get_oracle_databases(rubrik)['oracleDatabases']['nodes']
         db_data = []
@@ -58,6 +101,8 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
         print("-" * 130)
         print(tabulate(db_data, headers=db_headers))
         print("-" * 130)
+    # print("")
+    print("*" * 110)
     rubrik.delete_session()
     return
 
