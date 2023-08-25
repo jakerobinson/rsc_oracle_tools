@@ -34,35 +34,37 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
         database = OracleDatabase(rubrik, database_name, host_name)
         logger.debug("Database ID: {}".format(database.id))
         database_details = database.get_details()
-        logger.warning(f"DB Details: {database_details}")
+        logger.debug(f"DB Details: {database_details}")
         log_backup_details = database.get_log_backup_details()
         logger.debug(f"DB log backup Details: {log_backup_details}")
         recovery_ranges = database.get_recovery_ranges()
         logger.debug(f"Backup recovery ranges: {recovery_ranges}")
         timezone = database_details['cluster']['timezone']
-        # rubrik.delete_session()
-        # exit(20)
+
 
         print("*" * 95)
         print("*" * 95)
-        if database_details['dataGuardType'] == 'DataGuardGroup':
+        if database.dataguard:
             print("Data Guard Group Details ")
-            print("Data Guard Group Name: {0}   ID: {1}".format(database_details['name'], database_details['id']))
+            print(f"Data Guard Group Name: {database_details['name']}    ID: {database_details['id']}")
+            for node in database_details['descendantConnection']['nodes']:
+                host_type = "None"
+                for path in node['physicalPath']:
+                    if path['objectType'] == 'OracleHost':
+                        host_type = "Host Name"
+                        host_name = path['name']
+                    elif path['objectType'] == 'OracleRac':
+                        host_type = "RAC Name"
+                        host_name = path['name']
+                print(f"Unique Name: {node['dbUniqueName']}     {host_type}: {host_name}     Role: {node['dbRole']}")
         else:
             print("Database Details ")
             print("Database name: {0}   ID: {1}".format(database_details['name'], database_details['id']))
-        if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
-            print(f"RAC Cluster Name: {database_details['physicalPath'][0]['name']}    Number of instances: {database_details['numInstances']}")
-            print(database.get_rac_details(database_details['physicalPath'][0]['fid']))
-
-        else:
-            print(f"Host Name: {database_details['physicalPath'][0]['name']}")
-        # if 'dataGuardType' in database_details.keys():
-        #     if database_details['dataGuardType'] == 'DataGuardGroup':
-        #         for member in database_details['dataGuardGroupMembers']:
-        #             print("DB Unique Name: {0}    Host: {1}    Role: {2}".format(member['dbUniqueName'],
-        #                                                                          member['standaloneHostName'],
-        #                                                                          member['role']))
+            if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
+                print(f"RAC Cluster Name: {database_details['physicalPath'][0]['name']}    Number of instances: {database_details['numInstances']}")
+                print(database.get_rac_details(database_details['physicalPath'][0]['fid']))
+            else:
+                print(f"Host Name: {database_details['physicalPath'][0]['name']}")
         print(f"SLA: {database_details['effectiveSlaDomain']['name']}    Log Backup Frequency: {log_backup_details['logBackupFrequencyMin']} minutes    Log Retention: {int(log_backup_details['logRetentionHours'] / 24)} Days")
         print(f"Backup Channels: {database_details['numChannels']}")
         print(f"Cluster: {database_details['cluster']['name']}    Timezone: {timezone}")

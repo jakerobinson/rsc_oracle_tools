@@ -241,132 +241,60 @@ class OracleDatabase:
             self.logger.debug("Database is part of a Dataguard Group. Using Dataguard Group details...")
             query = gql(
                 """
-                query OracleDataGuardGroupDetailsQuery($fid: UUID!) {
-                oracleDataGuardGroup(fid: $fid) {
-                    id
-                    objectType
+                query DataGuardGroupQuery($fid: UUID!) {
+                  oracleDataGuardGroup(fid: $fid) {
                     name
-                    isRelic
-                    authorizedOperations
-                    logBackupFrequency
-                    tablespaces
-                    numChannels
-                    sectionSizeInGigabytes
-                    pdbs {
-                      id
-                      name
-                      isApplicationRoot
-                      isApplicationPdb
-                      applicationRootContainerId
-                      __typename
-                    }
-                    databaseDescendantConnection: descendantConnection(typeFilter: [OracleDatabase]) {
-                      count
-                      nodes {
-                        ...HierarchyObjectLocationColumnFragment
-                        ... on OracleDatabase {
-                          dbUniqueName
-                          dbRole
-                          __typename
-                        }
-                        __typename
-                      }
-                      __typename
-                    }
-                    effectiveSlaDomain {
-                      ...EffectiveSlaDomainFragment
-                      ... on GlobalSlaReply {
-                        description
-                        __typename
-                      }
-                      __typename
-                    }
-                    pendingSla {
-                      ...SLADomainFragment
-                      __typename
-                    }
+                    id
                     cluster {
                       id
                       name
                       timezone
-                      status
-                      version
-                      __typename
                     }
-                    primaryClusterLocation {
-                      id
-                      __typename
-                    }
-                    lastValidationResult {
-                      isSuccess
-                      timestampMs
-                      __typename
+                    dataGuardType
+                    dbUniqueName
+                    isRelic
+                    numChannels
+                    numInstances
+                    slaAssignment
+                    effectiveSlaDomain {
+                      ... on ClusterSlaDomain {
+                        id
+                        name
+                      }
+                      ... on GlobalSlaReply {
+                        id
+                        name
+                      }
                     }
                     snapshotConnection {
-                      count
-                      __typename
+                      nodes {
+                        date
+                        id
+                      }
                     }
-                    shouldBackupFromPrimaryOnly
-                    preferredDataGuardMemberUniqueNames 
-                    __typename
+                    descendantConnection {
+                      nodes {
+                        id
+                        name
+                        ... on OracleDatabase {
+                          dbUniqueName
+                          dbRole
+                          physicalPath {
+                            fid
+                            name
+                            objectType
+                          }
+                        }
+                      }
+                    }
                   }
-                }
-
-                fragment HierarchyObjectLocationColumnFragment on HierarchyObject {
-                    logicalPath {
-                        name
-                        objectType
-                        __typename
-                    }
-                    physicalPath {
-                        name
-                        objectType
-                        __typename
-                    }
-                    __typename
-                }
-
-                fragment SLADomainFragment on SlaDomain {
-                    id
-                    name
-                    ... on ClusterSlaDomain {
-                        fid
-                        cluster {
-                            id
-                            name
-                            __typename
-                        }
-                        __typename
-                    }
-                    __typename
-                }
-
-                fragment EffectiveSlaDomainFragment on SlaDomain {
-                    id
-                    name
-                    ... on GlobalSlaReply {
-                        isRetentionLockedSla
-                        __typename
-                    }
-                    ... on ClusterSlaDomain {
-                        fid
-                        cluster {
-                            id
-                            name
-                            __typename
-                        }
-                        isRetentionLockedSla
-                        __typename
-                    }
-                    __typename
                 }
                 """
             )
             query_variables = {
                 "fid": self.id
             }
-            database_details = self.connection.graphql_query(query, query_variables)
-            self.logger.warning(database_details)
+            database_details = self.connection.graphql_query(query, query_variables)['oracleDataGuardGroup']
         else:
             query = gql(
                 """     
