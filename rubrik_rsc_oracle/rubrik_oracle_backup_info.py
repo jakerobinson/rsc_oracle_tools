@@ -3,7 +3,7 @@ import logging
 import sys
 from tabulate import tabulate
 from rubrik_rsc_oracle.common import connection
-from rubrik_rsc_oracle.common.oracle_database import OracleDatabase
+from rubrik_rsc_oracle.common import oracle_database
 
 
 @click.command()
@@ -31,7 +31,7 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
 
     rubrik = connection.RubrikConnection(keyfile, insecure)
     if database_name:
-        database = OracleDatabase(rubrik, database_name, host_name)
+        database = oracle_database.OracleDatabase(rubrik, database_name, host_name)
         logger.debug("Database ID: {}".format(database.id))
         database_details = database.get_details()
         logger.debug(f"DB Details: {database_details}")
@@ -40,10 +40,7 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
         recovery_ranges = database.get_recovery_ranges()
         logger.debug(f"Backup recovery ranges: {recovery_ranges}")
         timezone = database_details['cluster']['timezone']
-
-
-        print("*" * 95)
-        print("*" * 95)
+        print("-" * 95)
         if database.dataguard:
             print("Data Guard Group Details ")
             print(f"Data Guard Group Name: {database_details['name']}    ID: {database_details['id']}")
@@ -62,25 +59,29 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
             print("Database name: {0}   ID: {1}".format(database_details['name'], database_details['id']))
             if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
                 print(f"RAC Cluster Name: {database_details['physicalPath'][0]['name']}    Number of instances: {database_details['numInstances']}")
-                print(database.get_rac_details(database_details['physicalPath'][0]['fid']))
+                rac_details = database.get_rac_details(database_details['physicalPath'][0]['fid'])
+                print(f"RAC Nodes:")
+                for node in rac_details['nodes']:
+                    print(f"Host name: {node['nodeName']}   Status: {node['status']}")
             else:
                 print(f"Host Name: {database_details['physicalPath'][0]['name']}")
-        print(f"SLA: {database_details['effectiveSlaDomain']['name']}    Log Backup Frequency: {log_backup_details['logBackupFrequencyMin']} minutes    Log Retention: {int(log_backup_details['logRetentionHours'] / 24)} Days")
+        print(f"SLA: {database_details['effectiveSlaDomain']['name']}   SLA Assignment: {database_details['slaAssignment']} ")
+        print(f"Log Backup Frequency: {log_backup_details['logBackupFrequencyMin']} minutes    Log Retention: {int(log_backup_details['logRetentionHours'] / 24)} Days")
         print(f"Backup Channels: {database_details['numChannels']}")
         print(f"Cluster: {database_details['cluster']['name']}    Timezone: {timezone}")
-        print("*" * 95)
+        print("-" * 95)
         print("Available Database Backups (Snapshots):")
         for snap in database_details['snapshotConnection']['nodes']:
             print("Database Backup Date: {}   Snapshot ID: {}".format(
                 database.cluster_time(snap['date'], timezone)[:-6], snap['id']))
-        print("*" * 95)
+        print("-" * 95)
         print("Recoverable ranges:")
         for recovery_range in recovery_ranges:
             print("Begin Time: {}   End Time: {}".format(
                 database.cluster_time(recovery_range['beginTime'], timezone)[:-6],
                 database.cluster_time(recovery_range['endTime'], timezone)[:-6]))
     else:
-        databases = OracleDatabase.get_oracle_databases(rubrik)['oracleDatabases']['nodes']
+        databases = oracle_database.OracleDatabase.get_oracle_databases(rubrik)['oracleDatabases']['nodes']
         db_data = []
         db_headers = ["Database", "DB Unique Name", "Role", "DG_Group", "Host/Cluster", "Instances", "CDM Cluster", "SLA", "Assignment"]
         for db in databases:
@@ -102,9 +103,7 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
         db_data.sort(key=lambda x: (x[0], x[1]))
         print("-" * 130)
         print(tabulate(db_data, headers=db_headers))
-        print("-" * 130)
-    # print("")
-    print("*" * 110)
+    print("-" * 130)
     rubrik.delete_session()
     return
 

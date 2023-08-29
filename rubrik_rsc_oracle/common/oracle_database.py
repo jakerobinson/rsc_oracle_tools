@@ -26,8 +26,7 @@ import datetime
 import pytz
 import logging
 from gql import gql
-
-import rubrik_rsc_oracle.common.connection
+from rubrik_rsc_oracle.common import connection
 
 
 class OracleDatabase:
@@ -312,6 +311,7 @@ class OracleDatabase:
                         objectType
                     }
                     numInstances
+                    slaAssignment
                     effectiveSlaDomain {
                       ... on ClusterSlaDomain {
                         name
@@ -514,7 +514,7 @@ class OracleDatabase:
         return cluster_time_object.isoformat()
 
 
-class OracleDatabaseError(rubrik_rsc_oracle.common.connection.NoTraceBackWithLineNumber):
+class OracleDatabaseError(connection.NoTraceBackWithLineNumber):
     """
     Renames object so error is named with calling script
     """
