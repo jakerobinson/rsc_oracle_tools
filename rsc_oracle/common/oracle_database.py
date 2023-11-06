@@ -26,7 +26,8 @@ import datetime
 import pytz
 import logging
 from gql import gql
-from rubrik_rsc_oracle.common import connection
+from rsc_oracle.common import connection
+from rsc_oracle.common import rubrik_cluster
 
 
 class OracleDatabase:
@@ -34,12 +35,15 @@ class OracleDatabase:
     Rubrik RBS (snappable) Oracle backup object.
     """
 
-    def __init__(self, connection, database_name, database_host=None, timeout=180):
-        self.logger = logging.getLogger(__name__ + '.RubrikRbsOracleDatabase')
+    def __init__(self, connection_name, database_name, database_host=None, cluster_name=None, relic="false", timeout=180):
+        self.logger = logging.getLogger(__name__ + '.RubrikRscOracleDatabase')
         self.cdm_timeout = timeout
         self.database_name = database_name
         self.database_host = database_host
-        self.connection = connection
+        self.connection = connection_name
+        self.relic = relic
+        self.cluster_name = cluster_name
+        self.cluster_id = None
         self.id = None
         self.dataguard = False
         self.get_oracle_db_id()
@@ -58,6 +62,12 @@ class OracleDatabase:
             query OracleDatabase($filter: [Filter!]) {
             oracleDatabases(filter: $filter) {
                 nodes {
+                  name
+                  id
+                  cluster {
+                    name
+                    id
+                  }
                   dataGuardType
                   dataGuardGroup {
                     dataGuardType
@@ -67,7 +77,6 @@ class OracleDatabase:
                   }
                   dbRole
                   dbUniqueName
-                  id
                   isLiveMount
                   isRelic
                   physicalPath {
@@ -75,35 +84,49 @@ class OracleDatabase:
                     name
                     objectType
                   }
-                  name
                 }
               }
             }
                     """
         )
 
-        query_variables = {
-            "filter": [
-                {
-                    "field": "IS_RELIC",
-                    "texts": [
-                        "false"
-                    ]
-                },
-                {
-                    "field": "IS_REPLICATED",
-                    "texts": [
-                        "false"
-                    ]
-                },
-                {
-                    "field": "NAME",
-                    "texts": [
-                        self.database_name
-                    ]
-                }
-            ],
-        }
+        if self.cluster_name:
+            cluster = rubrik_cluster.RubrikCluster(self.connection, self.cluster_name)
+            self.cluster_id = cluster.id
+            self.logger.debug(f"Cluster returned name: {cluster.name}, id: {cluster.id}")
+            query_variables = {
+                "filter": [
+                    {
+                        "field": "IS_RELIC",
+                        "texts": [self.relic]
+                    },
+                    {
+                        "field": "CLUSTER_ID",
+                        "texts": [cluster.id]
+                    },
+                    {
+                        "field": "NAME",
+                        "texts": [self.database_name]
+                    }
+                ],
+            }
+        else:
+            query_variables = {
+                "filter": [
+                    {
+                        "field": "IS_RELIC",
+                        "texts": [self.relic]
+                    },
+                    {
+                        "field": "IS_REPLICATED",
+                        "texts": ["false"]
+                    },
+                    {
+                        "field": "NAME",
+                        "texts": [self.database_name]
+                    }
+                ],
+            }
 
         name_match_databases = self.connection.graphql_query(query, query_variables)
         self.logger.debug("Oracle DBs with name (name_match_databases): {} returned: {}".format(self.database_name, name_match_databases))
@@ -117,6 +140,10 @@ class OracleDatabase:
                         objectType
                         name
                         id
+                        cluster {
+                          name
+                          id
+                        }
                         isRelic
                         dbUniqueName
                         dbRole
@@ -156,19 +183,40 @@ class OracleDatabase:
                 }
                 """
             )
-            query_variables = {
-                "filter": [
-                    {
-                        "field": "IS_RELIC",
-                        "texts": [ "false"]
-                    },
-                    {
-                        "field": "IS_REPLICATED",
-                        "texts": ["false"]
-                    }
-                ],
-                "typeFilter": "ORACLE_DATA_GUARD_GROUP",
-            }
+            if self.cluster_name:
+                cluster = rubrik_cluster.RubrikCluster(self.connection, self.cluster_name)
+                self.logger.debug(f"Cluster returned name: {cluster.name}, id: {cluster.id}")
+                query_variables = {
+                    "filter": [
+                        {
+                            "field": "IS_RELIC",
+                            "texts": ["false"]
+                        },
+                        {
+                            "field": "IS_REPLICATED",
+                            "texts": ["false"]
+                        },
+                        {
+                            "field": "CLUSTER_ID",
+                            "texts": [cluster.id]
+                        }
+                    ],
+                    "typeFilter": "ORACLE_DATA_GUARD_GROUP",
+                }
+            else:
+                query_variables = {
+                    "filter": [
+                        {
+                            "field": "IS_RELIC",
+                            "texts": ["false"]
+                        },
+                        {
+                            "field": "IS_REPLICATED",
+                            "texts": ["false"]
+                        }
+                    ],
+                    "typeFilter": "ORACLE_DATA_GUARD_GROUP",
+                }
             dg_groups = self.connection.graphql_query(query, query_variables)
             self.logger.debug("All dg groups returned: {}".format(dg_groups))
             dg_ids = []
@@ -177,12 +225,14 @@ class OracleDatabase:
                     if connection['dbUniqueName'] == self.database_name:
                         self.logger.debug("Found DB with dbUniqueName")
                         self.dataguard = True
-                        dg_ids.append(dg_group['id'])
+                        dg_ids.append([dg_group['id'], dg_group['cluster']['id']])
             if not dg_ids:
                 self.connection.delete_session()
                 raise OracleDatabaseError("No database found for database with name or db unique name: {}.".format(self.database_name))
             elif dg_ids.count(dg_ids[0]) == len(dg_ids):
-                self.id = dg_ids[0]
+                self.id = dg_ids[0][0]
+                if not self.cluster_id:
+                    self.cluster_id = dg_ids[0][1]
             else:
                 self.connection.delete_session()
                 raise OracleDatabaseError("Multiple DG Groups found for database with name or db unique name: {}.".format(self.database_name))
@@ -193,8 +243,12 @@ class OracleDatabase:
             if name_match_databases['oracleDatabases']['nodes'][0]['dataGuardType'] == 'DATA_GUARD_MEMBER':
                 self.id = name_match_databases['oracleDatabases']['nodes'][0]['dataGuardGroup']['id']
                 self.dataguard = True
+                if not self.cluster_id:
+                    self.cluster_id = name_match_databases['oracleDatabases']['nodes'][0]['cluster']['id']
             else:
                 self.id = name_match_databases['oracleDatabases']['nodes'][0]['id']
+                if not self.cluster_id:
+                    self.cluster_id = name_match_databases['oracleDatabases']['nodes'][0]['cluster']['id']
         else:
             self.logger.debug("Multiple databases found with name: {}".format(self.database_name))
             if self.database_host:
@@ -205,8 +259,12 @@ class OracleDatabase:
                             if node['dataGuardType'] == 'DATA_GUARD_MEMBER':
                                 self.id = node['dataGuardGroup']['id']
                                 self.dataguard = True
+                                if not self.cluster_id:
+                                    self.cluster_id = node['cluster']['id']
                             else:
                                 self.id = node['id']
+                                if not self.cluster_id:
+                                    self.cluster_id = node['cluster']['id']
             else:
                 self.logger.debug("Checking if the multiple databases found are part of the same DG Group")
                 hosts = []
@@ -214,16 +272,17 @@ class OracleDatabase:
                 for node in name_match_databases['oracleDatabases']['nodes']:
                     if node['dataGuardType'] == 'DATA_GUARD_MEMBER':
                         self.dataguard = True
-                        dg_ids.append(node['dataGuardGroup']['id'])
+                        dg_ids.append([node['dataGuardGroup']['id'], node['cluster']['id']])
                     else:
                         for path in node['physicalPath']:
                             hosts.append(path['name'])
                 if not dg_ids:
                     self.connection.delete_session()
-                    raise OracleDatabaseError(
-                        "No database found for database with name or db unique name: {}.".format(self.database_name))
+                    raise OracleDatabaseError(f"Multiple databases found with name or db unique name: {self.database_name}. Try specifying the host name also.")
                 elif dg_ids.count(dg_ids[0]) == len(dg_ids):
-                    self.id = dg_ids[0]
+                    self.id = dg_ids[0][0]
+                    if not self.cluster_id:
+                        self.cluster_id = dg_ids[0][1]
                 else:
                     self.connection.delete_session()
                     raise OracleDatabaseError(

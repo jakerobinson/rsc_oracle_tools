@@ -2,7 +2,7 @@ import click
 import logging
 import sys
 from tabulate import tabulate
-import rubrik_rsc_oracle.common.connection
+import rsc_oracle.common.connection
 from gql import gql
 import concurrent.futures
 
@@ -26,7 +26,7 @@ def cli(debug_level):
     logger.addHandler(ch)
 
     keyfile = "/Users/julianz/Repos/rubrik_oracle_gql/OracleApiTesting.json"
-    rubrik = rubrik_rsc_oracle.common.connection.RubrikConnection(keyfile)
+    rubrik = rsc_oracle.common.connection.RubrikConnection(keyfile)
     print("*" * 110)
     # print("Connected to cluster: {}, version: {}, Timezone: {}.".format(rubrik.name, rubrik.version, rubrik.timezone))
     # databases = rubrik.connection.get("internal", "/oracle/db")
@@ -154,7 +154,7 @@ def cli(debug_level):
 #     return
 
 
-class RubrikOracleBackupInfoError(rubrik_rsc_oracle.common.connection.NoTraceBackWithLineNumber):
+class RubrikOracleBackupInfoError(rsc_oracle.common.connection.NoTraceBackWithLineNumber):
     """
         Renames object so error is named with calling script
     """

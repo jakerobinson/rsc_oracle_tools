@@ -94,14 +94,14 @@ class RubrikConnection:
             self.logger.debug("The config file location is {}.".format(__location__))
 
             keyfile = os.path.join(__location__, 'keyfile.json')
-            if os.path.exists(keyfile):
-                with open(keyfile) as config_file:
-                    self.config = json.load(config_file)
-                for setting in self.config:
-                    if not (self.config[setting] and self.config[setting].strip()):
-                        self.config[setting] = None
-            else:
-                self.logger.debug("No keyfile found at {}, trying environment variables".format(keyfile))
+        if os.path.exists(keyfile):
+            with open(keyfile) as config_file:
+                self.config = json.load(config_file)
+            for setting in self.config:
+                if not (self.config[setting] and self.config[setting].strip()):
+                    self.config[setting] = None
+        else:
+            self.logger.debug("No keyfile found at {}, trying environment variables".format(keyfile))
         if not self.config['client_id']:
             self.config['client_id'] = os.environ.get('rsc_client_id')
             if not self.config['client_id']:

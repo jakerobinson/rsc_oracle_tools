@@ -2,8 +2,8 @@ import click
 import logging
 import sys
 from tabulate import tabulate
-from rubrik_rsc_oracle.common import connection
-from rubrik_rsc_oracle.common import oracle_database
+from rsc_oracle.common import connection
+from rsc_oracle.common import oracle_database
 
 
 @click.command()
@@ -11,13 +11,17 @@ from rubrik_rsc_oracle.common import oracle_database
 @click.option('--host_name', '-h', type=str, required=False,  help='The database host or RAC cluster')
 @click.option('--keyfile', '-k', type=str, required=False,  help='The connection keyfile path')
 @click.option('--insecure', is_flag=True,  help='Flag to use insecure connection')
-@click.option('--debug_level', type=str, default='WARNING', help='Logging level: DEBUG, INFO, WARNING or CRITICAL.')
-def cli(database_name, host_name, keyfile, insecure, debug_level):
+@click.option('--debug', is_flag=True,  help='Flag to enable debug mode')
+def cli(database_name, host_name, keyfile, insecure, debug):
     """
     Displays information about the Oracle database object, the available snapshots, and recovery ranges.
     If no source_host_db is supplied, all non-relic Oracle databases will be listed.
     Recommended console line size is 120 characters.
     """
+    if debug:
+        debug_level = "DEBUG"
+    else:
+        debug_level = "Warning"
     numeric_level = getattr(logging, debug_level.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError('Invalid log level: {}'.format(debug_level))
@@ -55,14 +59,13 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
                         host_name = path['name']
                 print(f"Unique Name: {node['dbUniqueName']}     {host_type}: {host_name}     Role: {node['dbRole']}")
         else:
-            print("Database Details ")
             print("Database name: {0}   ID: {1}".format(database_details['name'], database_details['id']))
             if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
                 print(f"RAC Cluster Name: {database_details['physicalPath'][0]['name']}    Number of instances: {database_details['numInstances']}")
                 rac_details = database.get_rac_details(database_details['physicalPath'][0]['fid'])
                 print(f"RAC Nodes:")
                 for node in rac_details['nodes']:
-                    print(f"Host name: {node['nodeName']}   Status: {node['status']}")
+                    print(f"{node['nodeName']}   Status: {node['status']}")
             else:
                 print(f"Host Name: {database_details['physicalPath'][0]['name']}")
         print(f"SLA: {database_details['effectiveSlaDomain']['name']}   SLA Assignment: {database_details['slaAssignment']} ")
@@ -80,6 +83,7 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
             print("Begin Time: {}   End Time: {}".format(
                 database.cluster_time(recovery_range['beginTime'], timezone)[:-6],
                 database.cluster_time(recovery_range['endTime'], timezone)[:-6]))
+        print('-' * 95)
     else:
         databases = oracle_database.OracleDatabase.get_oracle_databases(rubrik)['oracleDatabases']['nodes']
         db_data = []
@@ -101,9 +105,9 @@ def cli(database_name, host_name, keyfile, insecure, debug_level):
                 db_element[8] = db['slaAssignment']
                 db_data.append(db_element)
         db_data.sort(key=lambda x: (x[0], x[1]))
-        print("-" * 130)
+        print("-" * 162)
         print(tabulate(db_data, headers=db_headers))
-    print("-" * 130)
+        print("-" * 162)
     rubrik.delete_session()
     return
 
