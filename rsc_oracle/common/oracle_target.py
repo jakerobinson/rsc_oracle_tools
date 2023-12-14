@@ -98,7 +98,7 @@ class OracleTarget:
         }
 
         oracle_hosts = self.connection.graphql_query(query, query_variables)['oracleTopLevelDescendants']['nodes']
-        self.logger.debug(f"Oracle hosts returned containing name {self.hostname}: {oracle_hosts}")
+        self.logger.debug(f"Oracle hosts returned containing name {self.name}: {oracle_hosts}")
         if len(oracle_hosts) == 0:
             self.connection.delete_session()
             raise OracleTargetError(f"No hosts found with the target host name: {self.name}")

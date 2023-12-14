@@ -44,6 +44,7 @@ class OracleDatabase:
         self.relic = relic
         self.cluster_name = cluster_name
         self.cluster_id = None
+        self.timezone = None
         self.id = None
         self.dataguard = False
         self.get_oracle_db_id()
@@ -67,6 +68,7 @@ class OracleDatabase:
                   cluster {
                     name
                     id
+                    timezone
                   }
                   dataGuardType
                   dataGuardGroup {
@@ -128,9 +130,16 @@ class OracleDatabase:
                 ],
             }
 
-        name_match_databases = self.connection.graphql_query(query, query_variables)
-        self.logger.debug("Oracle DBs with name (name_match_databases): {} returned: {}".format(self.database_name, name_match_databases))
-        if len(name_match_databases['oracleDatabases']['nodes']) == 0:
+        all_name_match_databases = self.connection.graphql_query(query, query_variables)['oracleDatabases']['nodes']
+        self.logger.debug(f"Oracle DBs with name {self.database_name} returned: {all_name_match_databases}")
+        self.logger.debug("Ignoring Live Mount databases found with name: {}".format(self.database_name))
+        name_match_databases = []
+        for node in all_name_match_databases:
+            if node['isLiveMount'] == False:
+                name_match_databases.append(node)
+        self.logger.debug(f"Oracle DBs not live mounted with name {self.database_name} returned: {name_match_databases}")
+        if len(name_match_databases) == 0:
+            self.logger.debug(f"No Oracle DBs with name {self.database_name} found in oracleDatabases, trying oracleTopLevelDescendants.")
             query = gql(
                 """
                 query OracleDGGroups($filter: [Filter!], $typeFilter: [HierarchyObjectTypeEnum!]) {
@@ -143,6 +152,7 @@ class OracleDatabase:
                         cluster {
                           name
                           id
+                          timezone
                         }
                         isRelic
                         dbUniqueName
@@ -225,64 +235,61 @@ class OracleDatabase:
                     if connection['dbUniqueName'] == self.database_name:
                         self.logger.debug("Found DB with dbUniqueName")
                         self.dataguard = True
-                        dg_ids.append([dg_group['id'], dg_group['cluster']['id']])
+                        dg_ids.append([dg_group['id'], dg_group['cluster']['id'], dg_group['cluster']['name'], dg_group['cluster']['timezone']])
             if not dg_ids:
                 self.connection.delete_session()
                 raise OracleDatabaseError("No database found for database with name or db unique name: {}.".format(self.database_name))
             elif dg_ids.count(dg_ids[0]) == len(dg_ids):
                 self.id = dg_ids[0][0]
-                if not self.cluster_id:
-                    self.cluster_id = dg_ids[0][1]
+                self.cluster_id = dg_ids[0][1]
+                self.cluster_name = dg_ids[0][2]
+                self.timezone = dg_ids[0][3]
             else:
                 self.connection.delete_session()
                 raise OracleDatabaseError("Multiple DG Groups found for database with name or db unique name: {}.".format(self.database_name))
             if not self.id:
                 self.connection.delete_session()
                 raise OracleDatabaseError("No database found for database with name or db unique name: {}.".format(self.database_name))
-        elif len(name_match_databases['oracleDatabases']['nodes']) == 1:
-            if name_match_databases['oracleDatabases']['nodes'][0]['dataGuardType'] == 'DATA_GUARD_MEMBER':
-                self.id = name_match_databases['oracleDatabases']['nodes'][0]['dataGuardGroup']['id']
+        elif len(name_match_databases) == 1:
+            if name_match_databases[0]['dataGuardType'] == 'DATA_GUARD_MEMBER':
+                self.id = name_match_databases[0]['dataGuardGroup']['id']
                 self.dataguard = True
-                if not self.cluster_id:
-                    self.cluster_id = name_match_databases['oracleDatabases']['nodes'][0]['cluster']['id']
             else:
-                self.id = name_match_databases['oracleDatabases']['nodes'][0]['id']
-                if not self.cluster_id:
-                    self.cluster_id = name_match_databases['oracleDatabases']['nodes'][0]['cluster']['id']
+                self.id = name_match_databases[0]['id']
+            self.cluster_id = name_match_databases[0]['cluster']['id']
+            self.cluster_name = name_match_databases[0]['cluster']['name']
+            self.timezone = name_match_databases[0]['cluster']['timezone']
         else:
             self.logger.debug("Multiple databases found with name: {}".format(self.database_name))
             if self.database_host:
-                self.logger.debug("Checking for hostname match in physicalPath: {}".format(name_match_databases['oracleDatabases']['nodes']))
-                for node in name_match_databases['oracleDatabases']['nodes']:
+                self.logger.debug("Checking for hostname match in physicalPath: {}".format(name_match_databases))
+                for node in name_match_databases:
                     for path in node['physicalPath']:
                         if self.database_host in path['name']:
                             if node['dataGuardType'] == 'DATA_GUARD_MEMBER':
                                 self.id = node['dataGuardGroup']['id']
                                 self.dataguard = True
-                                if not self.cluster_id:
-                                    self.cluster_id = node['cluster']['id']
                             else:
                                 self.id = node['id']
-                                if not self.cluster_id:
-                                    self.cluster_id = node['cluster']['id']
+                            self.cluster_id = node['cluster']['id']
+                            self.cluster_name = node['cluster']['name']
+                            self.timezone = node['cluster']['timezone']
             else:
                 self.logger.debug("Checking if the multiple databases found are part of the same DG Group")
                 hosts = []
                 dg_ids = []
-                for node in name_match_databases['oracleDatabases']['nodes']:
+                for node in name_match_databases:
                     if node['dataGuardType'] == 'DATA_GUARD_MEMBER':
-                        self.dataguard = True
-                        dg_ids.append([node['dataGuardGroup']['id'], node['cluster']['id']])
-                    else:
-                        for path in node['physicalPath']:
-                            hosts.append(path['name'])
+                        dg_ids.append([node['dataGuardGroup']['id'], node['cluster']['id'], node['cluster']['name'], node['cluster']['timezone']])
                 if not dg_ids:
                     self.connection.delete_session()
                     raise OracleDatabaseError(f"Multiple databases found with name or db unique name: {self.database_name}. Try specifying the host name also.")
                 elif dg_ids.count(dg_ids[0]) == len(dg_ids):
                     self.id = dg_ids[0][0]
-                    if not self.cluster_id:
-                        self.cluster_id = dg_ids[0][1]
+                    self.cluster_id = dg_ids[0][1]
+                    self.cluster_name = dg_ids[0][2]
+                    self.timezone = dg_ids[0][3]
+                    self.dataguard = True
                 else:
                     self.connection.delete_session()
                     raise OracleDatabaseError(
@@ -571,6 +578,26 @@ class OracleDatabase:
             datetime_object = cluster_timezone.localize(datetime.datetime.fromisoformat(time_string))
         cluster_time_object = cluster_timezone.normalize(datetime_object.astimezone(cluster_timezone))
         return cluster_time_object.isoformat()
+
+    @staticmethod
+    def epoch_time(iso_time_string, timezone):
+        """
+        Converts a time string in ISO 8601 format to epoch time using the time zone.
+
+        Args:
+            iso_time_string (str): A time string in ISO 8601 format. If the string ends with Z it is considered to be in ZULU (GMT)
+            timezone (str): The timezone.
+        Returns:
+            epoch_time (str): the epoch time.
+        """
+        if iso_time_string.endswith('Z'):
+            iso_time_string = iso_time_string[:-1]
+            utc = pytz.utc
+            datetime_object = utc.localize(datetime.datetime.fromisoformat(iso_time_string))
+        else:
+            cluster_timezone = pytz.timezone(timezone)
+            datetime_object = cluster_timezone.localize(datetime.datetime.fromisoformat(iso_time_string))
+        return int(datetime_object.timestamp()) * 1000
 
 
 class OracleDatabaseError(connection.NoTraceBackWithLineNumber):

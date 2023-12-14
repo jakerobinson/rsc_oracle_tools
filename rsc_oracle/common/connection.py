@@ -27,7 +27,9 @@ import os
 import json
 import sys
 import inspect
-
+import time
+import yaspin
+from yaspin.spinners import Spinners
 import requests
 import urllib3
 from gql import Client
@@ -171,3 +173,21 @@ class RubrikConnection:
         client = Client(transport=transport, fetch_schema_from_transport=False)
         result = client.execute(query, variable_values=query_variables)
         return result
+
+    def async_requests_wait(self, requests_id, timeout):
+        timeout_start = time.time()
+        terminal_states = ['FAILED', 'CANCELED', 'SUCCEEDED']
+        oracle_request = None
+        while time.time() < timeout_start + (timeout * 60):
+            oracle_request = self.graphql_query('internal', '/oracle/request/{}'.format(requests_id), timeout=self.cdm_timeout)
+            if oracle_request['status'] in terminal_states:
+                break
+            with yaspin(Spinners.line, text='Request status: {}'.format(oracle_request['status'])):
+                time.sleep(10)
+        if oracle_request['status'] not in terminal_states:
+            self.delete_session()
+            raise RbsOracleConnectionError(
+                "\nTimeout: Async request status has been {0} for longer than the timeout period of {1} minutes. The request will remain active (current status: {0})  and the script will exit.".format(
+                    oracle_request['status'], timeout))
+        else:
+            return oracle_request

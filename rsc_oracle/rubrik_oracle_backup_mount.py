@@ -14,12 +14,13 @@ from rsc_oracle.common import connection, oracle_database, oracle_target
 @click.option('--path', '-p', type=str, required=True, help='The path used to mount the backup files')
 @click.option('--restore_time', '-r', type=str, help='Point in time to mount the DB, format is YY:MM:DDTHH:MM:SS example 2019-01-01T20:30:15')
 @click.option('--target', '-t', type=str, help='Host or RAC cluster name (RAC target required if source is RAC)  for the Live Mount ')
+@click.option('--rac', '-r', is_flag=True, help='Mount backups on all nodes of a RAC cluster. Target must be a RAC cluster or RAC cluster host.')
 @click.option('--timeout', type=int, default=12, help='Time to wait for mount operation to complete in minutes before script timeouts. Mount will still continue after timeout.')
 @click.option('--no_wait', is_flag=True, help='Queue Live Mount and exit.')
 @click.option('--keyfile', '-k', type=str, required=False,  help='The connection keyfile path')
 @click.option('--insecure', is_flag=True,  help='Flag to use insecure connection')
 @click.option('--debug', is_flag=True,  help='Flag to enable debug mode')
-def cli(database_name, host, cluster_name, path, restore_time, target, timeout, no_wait, keyfile, insecure, debug):
+def cli(database_name, host, cluster_name, path, restore_time, target, rac, timeout, no_wait, keyfile, insecure, debug):
     """
     This will mount the requested Rubrik Oracle backup set on the provided path.
 
@@ -47,46 +48,48 @@ def cli(database_name, host, cluster_name, path, restore_time, target, timeout, 
 
     rubrik = connection.RubrikConnection(keyfile, insecure)
     database = oracle_database.OracleDatabase(rubrik, database_name, host, cluster_name)
-    logger.debug(f"Database ID: {database.id}, Cluster ID: {database.cluster_id}")
+    logger.debug(f"Database Name, ID: {database_name}, {database.id}, Cluster ID: {database.cluster_id}, Cluster Name: {database.cluster_name}, Timezone: {database.timezone}")
     database_details = database.get_details()
     logger.debug(f"DB Details: {database_details}")
-    timezone = database_details['cluster']['timezone']
-    host_type = "None"
-    if database.dataguard:
-        for node in database_details['descendantConnection']['nodes']:
-            for path in node['physicalPath']:
-                if path['objectType'] == 'OracleHost':
-                    host_type = "standAlone"
-                    # host = path['name']
-                elif path['objectType'] == 'OracleRac':
-                    host_type = "RAC"
-                    # host = path['name']
-    else:
-        if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
-            host_type = 'RAC'
-        else:
-            host_type = "standAlone"
-    logger.debug(f"Source database type: {host_type}")
-    rac = False
-    if host_type == 'RAC':
-        rac = True
+    # host_type = "None"
+    # if database.dataguard:
+    #     for node in database_details['descendantConnection']['nodes']:
+    #         for path in node['physicalPath']:
+    #             if path['objectType'] == 'OracleHost':
+    #                 host_type = "standAlone"
+    #                 # host = path['name']
+    #             elif path['objectType'] == 'OracleRac':
+    #                 host_type = "RAC"
+    #                 # host = path['name']
+    # else:
+    #     if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
+    #         host_type = 'RAC'
+    #     else:
+    #         host_type = "standAlone"
+    # logger.debug(f"Source database type: {host_type}")
+    # rac = False
+    # if host_type == 'RAC':
+    #     rac = True
+    if host and not target:
+        target = host
     host = oracle_target.OracleTarget(rubrik, target, database.cluster_id, rac=rac)
-    logger.debug(f"Target name: {host.rac_name}, ID: {host.id}")
+    logger.debug(f"Target name: {host.name} RAC name: {host.rac_name}, ID: {host.id}")
+
+    if restore_time:
+        time_ms = database.epoch_time(restore_time, database.timezone)
+        logger.warning("Mounting backup pieces for a point in time restore to time: {}.".format(restore_time))
+    else:
+        recovery_ranges = database.get_recovery_ranges()
+        latest_recovery_point = (max(recovery_ranges, key=lambda x: datetime.datetime.strptime(x['endTime'].replace('Z',''), "%Y-%m-%dT%H:%M:%S.%f")))['endTime']
+        logger.warning(f"Using the latest recovery point: {latest_recovery_point}")
+        time_ms = database.epoch_time(latest_recovery_point, database.timezone)
+    logger.warning("Starting the mount of the requested {} backup pieces on {}.".format(database_name, target))
+
     rubrik.delete_session()
     exit(20)
 
-    if host and not target:
-        target = host
-    target_id = database.get_target_id(rubrik.cluster_id, target)
-    if restore_time:
-        time_ms = database.epoch_time(restore_time, timezone)
-        logger.warning("Mounting backup pieces for a point in time restore to time: {}.".format(time_restore))
-    else:
-        logger.warning("Using most recent recovery point for mount.")
-        time_ms = database.epoch_time(oracle_db_info['latestRecoveryPoint'], timezone)
-    logger.warning("Starting the mount of the requested {} backup pieces on {}.".format(source_host_db[1], host_target))
     live_mount_info = database.live_mount(target_id, time_ms, files_only=True, mount_path=path)
-    cluster_timezone = pytz.timezone(timezone)
+    cluster_timezone = pytz.timezone(database.timezone)
     utc = pytz.utc
     start_time = utc.localize(datetime.datetime.fromisoformat(live_mount_info['startTime'][:-1])).astimezone(
         cluster_timezone)
