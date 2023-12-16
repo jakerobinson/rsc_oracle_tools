@@ -51,25 +51,6 @@ def cli(database_name, host, cluster_name, path, restore_time, target, rac, time
     logger.debug(f"Database Name, ID: {database_name}, {database.id}, Cluster ID: {database.cluster_id}, Cluster Name: {database.cluster_name}, Timezone: {database.timezone}")
     database_details = database.get_details()
     logger.debug(f"DB Details: {database_details}")
-    # host_type = "None"
-    # if database.dataguard:
-    #     for node in database_details['descendantConnection']['nodes']:
-    #         for path in node['physicalPath']:
-    #             if path['objectType'] == 'OracleHost':
-    #                 host_type = "standAlone"
-    #                 # host = path['name']
-    #             elif path['objectType'] == 'OracleRac':
-    #                 host_type = "RAC"
-    #                 # host = path['name']
-    # else:
-    #     if database_details['physicalPath'][0]['objectType'] == 'OracleRac':
-    #         host_type = 'RAC'
-    #     else:
-    #         host_type = "standAlone"
-    # logger.debug(f"Source database type: {host_type}")
-    # rac = False
-    # if host_type == 'RAC':
-    #     rac = True
     if host and not target:
         target = host
     host = oracle_target.OracleTarget(rubrik, target, database.cluster_id, rac=rac)
