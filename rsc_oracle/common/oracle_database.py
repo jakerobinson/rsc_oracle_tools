@@ -24,8 +24,11 @@ Class for an Oracle database object.
 """
 import datetime
 import pytz
+import time
 import logging
 from gql import gql
+from yaspin import yaspin
+from yaspin.spinners import Spinners
 from rsc_oracle.common import connection
 from rsc_oracle.common import rubrik_cluster
 
@@ -475,6 +478,44 @@ class OracleDatabase:
         rac_details = self.connection.graphql_query(query, query_variables)
         return rac_details['oracleRac']
 
+    def live_mount(self, target_id, time_ms, files_only=True, mount_path=None, rename=True, aco_config_map=None):
+        query = gql(
+            """
+            mutation OracleDatabaseMountMutation($input: MountOracleDatabaseInput!) {
+                mountOracleDatabase(input: $input) {
+                    id
+                    links {
+                        href
+                        rel
+                        }
+                }
+            }
+            """
+        )
+
+        query_variables = {
+            "input": {
+                "request": {
+                    "config": {
+                        "targetOracleHostOrRacId": target_id,
+                        "shouldMountFilesOnly": files_only,
+                        "recoveryPoint": {
+                            "timestampMs": time_ms
+                        },
+                        "targetMountPath": mount_path,
+                        "shouldAllowRenameToSource": rename
+                    },
+                    "id": self.id
+                },
+                "advancedRecoveryConfigMap": aco_config_map
+            }
+        }
+
+        self.logger.debug(f"Mutation: {query}")
+        self.logger.debug(f"Mutation Variables: {query_variables}")
+        live_mount_details = self.connection.graphql_query(query, query_variables)
+        return live_mount_details
+
     @staticmethod
     def get_cluster_timezone(connection, cluster_id):
         query = gql(
@@ -598,6 +639,51 @@ class OracleDatabase:
             cluster_timezone = pytz.timezone(timezone)
             datetime_object = cluster_timezone.localize(datetime.datetime.fromisoformat(iso_time_string))
         return int(datetime_object.timestamp()) * 1000
+
+    @staticmethod
+    def async_requests_wait(connection, requests_id, cluster_id, timeout):
+        timeout_start = time.time()
+        terminal_states = ['FAILED', 'CANCELED', 'SUCCEEDED']
+        query = gql(
+            """
+            query OracleDatabaseAsyncRequestDetails($input: GetOracleAsyncRequestStatusInput!) {
+              oracleDatabaseAsyncRequestDetails(input: $input) {
+                status
+                startTime
+                progress
+                nodeId
+                id
+                error {
+                  message
+                }
+                endTime
+              }
+            }
+            """
+        )
+        query_variables = {
+          "input": {
+                "id": requests_id,
+                "clusterUuid": cluster_id
+            }
+        }
+        oracle_request = None
+        while time.time() < timeout_start + (timeout * 60):
+            oracle_request = connection.graphql_query(query, query_variables)['oracleDatabaseAsyncRequestDetails']
+            if oracle_request['status'] in terminal_states:
+                break
+            with yaspin(Spinners.line, text='Request status: {}'.format(oracle_request['status'])):
+                time.sleep(10)
+        if oracle_request['status'] not in terminal_states:
+            connection.delete_session()
+            raise OracleDatabaseError(
+                "\nTimeout: Async request status has been {0} for longer than the timeout period of {1} minutes. The request will remain active (current status: {0})  and the script will exit.".format(
+                    oracle_request['status'], timeout))
+        else:
+            return oracle_request
+
+    @staticmethod
+    def
 
 
 class OracleDatabaseError(connection.NoTraceBackWithLineNumber):

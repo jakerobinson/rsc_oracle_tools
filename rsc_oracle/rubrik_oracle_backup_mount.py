@@ -74,34 +74,25 @@ def cli(database_name, host, cluster_name, path, restore_time, target, rac, time
         target = host
     host = oracle_target.OracleTarget(rubrik, target, database.cluster_id, rac=rac)
     logger.debug(f"Target name: {host.name} RAC name: {host.rac_name}, ID: {host.id}")
-
     if restore_time:
-        time_ms = database.epoch_time(restore_time, database.timezone)
+        restore_time_ms = database.epoch_time(restore_time, database.timezone)
         logger.warning("Mounting backup pieces for a point in time restore to time: {}.".format(restore_time))
     else:
         recovery_ranges = database.get_recovery_ranges()
         latest_recovery_point = (max(recovery_ranges, key=lambda x: datetime.datetime.strptime(x['endTime'].replace('Z',''), "%Y-%m-%dT%H:%M:%S.%f")))['endTime']
         logger.warning(f"Using the latest recovery point: {latest_recovery_point}")
-        time_ms = database.epoch_time(latest_recovery_point, database.timezone)
+        restore_time_ms = database.epoch_time(latest_recovery_point, database.timezone)
     logger.warning("Starting the mount of the requested {} backup pieces on {}.".format(database_name, target))
 
-    rubrik.delete_session()
-    exit(20)
-
-    live_mount_info = database.live_mount(target_id, time_ms, files_only=True, mount_path=path)
-    cluster_timezone = pytz.timezone(database.timezone)
-    utc = pytz.utc
-    start_time = utc.localize(datetime.datetime.fromisoformat(live_mount_info['startTime'][:-1])).astimezone(
-        cluster_timezone)
-    fmt = '%Y-%m-%d %H:%M:%S %Z'
-    logger.info("Live mount requested at {}.".format(start_time.strftime(fmt)))
-    logger.info("No wait flag is set to {}.".format(no_wait))
+    live_mount_info = database.live_mount(host.id, restore_time_ms, files_only=True, mount_path=path)['mountOracleDatabase']
+    logger.debug(f"Return from live_mount: {live_mount_info}")
+    logger.debug("No wait flag is set to {}.".format(no_wait))
     if no_wait:
-        logger.warning("Live mount id: {} Mount status: {}.".format(live_mount_info['id'], live_mount_info['status']))
+        logger.warning("Live mount id: {}.".format(live_mount_info['id']))
         rubrik.delete_session()
         return live_mount_info
     else:
-        live_mount_info = database.async_requests_wait(live_mount_info['id'], timeout)
+        live_mount_info = database.async_requests_wait(rubrik, live_mount_info['id'], database.cluster_id, timeout)
         logger.warning("Async request completed with status: {}".format(live_mount_info['status']))
         if live_mount_info['status'] != "SUCCEEDED":
             raise RubrikOracleBackupMountError(
