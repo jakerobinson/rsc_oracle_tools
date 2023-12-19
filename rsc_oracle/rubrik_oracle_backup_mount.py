@@ -3,7 +3,6 @@ import click
 import logging
 import sys
 import datetime
-import pytz
 from rsc_oracle.common import connection, oracle_database, oracle_target
 
 

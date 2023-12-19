@@ -683,7 +683,79 @@ class OracleDatabase:
             return oracle_request
 
     @staticmethod
-    def
+    def get_oracle_mounts(connection):
+        query = gql(
+            """
+                query GetOracleLiveMounts {
+                      oracleLiveMounts {
+                        count
+                        nodes {
+                          cluster {
+                            id
+                            name
+                          }
+                          id
+                          isFilesOnlyMount
+                          isInstantRecovered
+                          isReady
+                          creationDate
+                          mountedDatabase {
+                            id
+                            dbUniqueName
+                            dbRole
+                            cluster {
+                              id
+                              name
+                            }
+                            physicalPath {
+                              fid
+                              objectType
+                              name
+                            }
+                          }
+                          mountedDatabaseName
+                          owner {
+                            id
+                            groups
+                            username
+                          }
+                          sourceDatabase {
+                            id
+                            name
+                            physicalPath {
+                              fid
+                              name
+                              objectType
+                            }
+                          }
+                          status
+                          targetHostMount
+                          targetOracleHost {
+                            id
+                            name
+                            physicalPath {
+                              fid
+                              name
+                              objectType
+                            }
+                          }
+                          targetOracleRac {
+                            name
+                            id
+                            physicalPath {
+                              fid
+                              name
+                              objectType
+                            }
+                          }
+                        }
+                      }
+                    }
+                        """
+        )
+
+        oracle_live_mounts = connection.graphql_query(query)['oracleLiveMounts']['nodes']
+        return oracle_live_mounts
 
 
 class OracleDatabaseError(connection.NoTraceBackWithLineNumber):

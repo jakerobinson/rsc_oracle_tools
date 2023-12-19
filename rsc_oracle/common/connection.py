@@ -12,7 +12,7 @@
 #
 #  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 #  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE
 #  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
@@ -27,10 +27,9 @@ import os
 import json
 import sys
 import inspect
-import time
 import requests
 import urllib3
-from gql import Client, gql
+from gql import Client
 from gql.transport.requests import RequestsHTTPTransport
 
 
@@ -176,44 +175,3 @@ class RubrikConnection:
             raise RbsOracleConnectionError(f"Method graphql_query failed with Unexpected {err}")
         return result
 
-    # def async_requests_wait(self, requests_id, cluster_id, timeout):
-    #     timeout_start = time.time()
-    #     terminal_states = ['FAILED', 'CANCELED', 'SUCCEEDED']
-    #     query = gql(
-    #         """
-    #         query OracleDatabaseAsyncRequestDetails($input: GetOracleAsyncRequestStatusInput!) {
-    #           oracleDatabaseAsyncRequestDetails(input: $input) {
-    #             status
-    #             startTime
-    #             progress
-    #             nodeId
-    #             id
-    #             error {
-    #               message
-    #             }
-    #             endTime
-    #           }
-    #         }
-    #         """
-    #     )
-    #     query_variables = {
-    #       "input": {
-    #             "id": requests_id,
-    #             "clusterUuid": cluster_id
-    #         }
-    #     }
-    #     oracle_request = None
-    #     while time.time() < timeout_start + (timeout * 60):
-    #         oracle_request = self.graphql_query(query, query_variables)['oracleDatabaseAsyncRequestDetails']
-    #         self.logger.debug(f"Oracle_request: {oracle_request}")
-    #         if oracle_request['status'] in terminal_states:
-    #             break
-    #         with yaspin(Spinners.line, text='Request status: {}'.format(oracle_request['status'])):
-    #             time.sleep(10)
-    #     if oracle_request['status'] not in terminal_states:
-    #         self.delete_session()
-    #         raise RbsOracleConnectionError(
-    #             "\nTimeout: Async request status has been {0} for longer than the timeout period of {1} minutes. The request will remain active (current status: {0})  and the script will exit.".format(
-    #                 oracle_request['status'], timeout))
-    #     else:
-    #         return oracle_request
